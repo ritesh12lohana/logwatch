@@ -1,0 +1,13 @@
+{
+  "name": "logwatch-producer",
+  "version": "1.0.0",
+  "description": "Simulated app that sends logs to the backend",
+  "main": "producer.js",
+  "scripts": {
+    "start": "node producer.js"
+  },
+  "dependencies": {
+    "axios": "^1.6.0",
+    "dotenv": "^16.3.1"
+  }
+}

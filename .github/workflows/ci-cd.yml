@@ -1,0 +1,82 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: install backend deps
+        working-directory: ./backend
+        run: npm install
+
+      - name: run backend tests
+        working-directory: ./backend
+        run: npm test
+
+      - name: install queue deps
+        working-directory: ./queue
+        run: npm install
+
+  build-and-push:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: build and push backend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          push: true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/logwatch-backend:latest
+
+      - name: build and push queue
+        uses: docker/build-push-action@v5
+        with:
+          context: ./queue
+          push: true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/logwatch-queue:latest
+
+      - name: build and push producer
+        uses: docker/build-push-action@v5
+        with:
+          context: ./producer
+          push: true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/logwatch-producer:latest
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: deploy to EC2
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            cd ~/logwatch
+            git pull origin main
+            docker compose pull
+            docker compose up -d --remove-orphans
+            docker image prune -f

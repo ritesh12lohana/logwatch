@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>logwatch — real-time log monitor</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Syne:wght@700;800&display=swap');
+
+    :root {
+      --bg: #0d0f14;
+      --surface: #13161e;
+      --border: #1e2330;
+      --text: #c9d1e0;
+      --muted: #4a5268;
+      --info: #4ea8de;
+      --warn: #f5a623;
+      --error: #e05c5c;
+      --debug: #7c6edb;
+      --green: #4ade80;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      min-height: 100vh;
+    }
+
+    header {
+      border-bottom: 1px solid var(--border);
+      padding: 16px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .logo {
+      font-family: 'Syne', sans-serif;
+      font-size: 20px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+    }
+
+    .logo span { color: var(--error); }
+
+    .status-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--green);
+      display: inline-block;
+      margin-right: 6px;
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
+    .status-dot.disconnected { background: var(--muted); animation: none; }
+
+    .stats-bar {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 1px;
+      background: var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .stat-card {
+      background: var(--surface);
+      padding: 20px 24px;
+    }
+
+    .stat-card .label {
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 8px;
+    }
+
+    .stat-card .value {
+      font-size: 28px;
+      font-weight: 700;
+      font-family: 'Syne', sans-serif;
+    }
+
+    .stat-card.errors .value { color: var(--error); }
+    .stat-card.warnings .value { color: var(--warn); }
+    .stat-card.total .value { color: var(--info); }
+    .stat-card.info .value { color: var(--green); }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 24px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+    }
+
+    .toolbar label {
+      font-size: 11px;
+      color: var(--muted);
+      margin-right: 4px;
+    }
+
+    select {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      padding: 5px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    select:focus { outline: none; border-color: var(--info); }
+
+    button {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      padding: 5px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: border-color 0.15s, color 0.15s;
+    }
+
+    button:hover { border-color: var(--info); color: var(--info); }
+
+    button.danger:hover { border-color: var(--error); color: var(--error); }
+
+    .spacer { flex: 1; }
+
+    #log-container {
+      height: calc(100vh - 195px);
+      overflow-y: auto;
+      padding: 8px 0;
+    }
+
+    .log-row {
+      display: grid;
+      grid-template-columns: 170px 70px 150px 1fr;
+      gap: 0 16px;
+      padding: 5px 24px;
+      border-bottom: 1px solid transparent;
+      transition: background 0.1s;
+      animation: slideIn 0.2s ease;
+    }
+
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateX(-8px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+
+    .log-row:hover { background: var(--surface); }
+
+    .log-row.ERROR { border-left: 3px solid var(--error); }
+    .log-row.WARNING { border-left: 3px solid var(--warn); }
+    .log-row.INFO { border-left: 3px solid transparent; }
+    .log-row.DEBUG { border-left: 3px solid var(--debug); }
+
+    .col-time { color: var(--muted); font-size: 11px; }
+
+    .level-badge {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      padding: 1px 6px;
+      border-radius: 3px;
+      display: inline-block;
+    }
+
+    .level-badge.INFO    { background: rgba(78,168,222,0.15); color: var(--info); }
+    .level-badge.WARNING { background: rgba(245,166,35,0.15);  color: var(--warn); }
+    .level-badge.ERROR   { background: rgba(224,92,92,0.15);   color: var(--error); }
+    .level-badge.DEBUG   { background: rgba(124,110,219,0.15); color: var(--debug); }
+
+    .col-service { color: var(--muted); font-size: 12px; }
+    .col-msg { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    .log-row.ERROR .col-msg { color: #f0a0a0; }
+    .log-row.WARNING .col-msg { color: #f5cc80; }
+
+    .empty-state {
+      text-align: center;
+      padding: 80px 24px;
+      color: var(--muted);
+    }
+
+    .empty-state p { margin-top: 8px; font-size: 12px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">log<span>watch</span></div>
+  <div>
+    <span class="status-dot" id="statusDot"></span>
+    <span id="statusText">connecting...</span>
+  </div>
+</header>
+
+<div class="stats-bar">
+  <div class="stat-card total">
+    <div class="label">total logs</div>
+    <div class="value" id="statTotal">0</div>
+  </div>
+  <div class="stat-card errors">
+    <div class="label">errors</div>
+    <div class="value" id="statErrors">0</div>
+  </div>
+  <div class="stat-card warnings">
+    <div class="label">warnings</div>
+    <div class="value" id="statWarnings">0</div>
+  </div>
+  <div class="stat-card info">
+    <div class="label">info</div>
+    <div class="value" id="statInfo">0</div>
+  </div>
+  <div class="stat-card" style="border-top: 2px solid #7c6edb;">
+    <div class="label" style="color:#7c6edb;">queue depth</div>
+    <div class="value" id="statQueue" style="color:#7c6edb;">0</div>
+  </div>
+</div>
+
+<div class="toolbar">
+  <label>filter:</label>
+  <select id="levelFilter">
+    <option value="">all levels</option>
+    <option value="ERROR">ERROR</option>
+    <option value="WARNING">WARNING</option>
+    <option value="INFO">INFO</option>
+    <option value="DEBUG">DEBUG</option>
+  </select>
+
+  <label>service:</label>
+  <select id="serviceFilter">
+    <option value="">all services</option>
+  </select>
+
+  <div class="spacer"></div>
+
+  <button id="pauseBtn">⏸ pause</button>
+  <button id="clearBtn" class="danger">✕ clear</button>
+</div>
+
+<div id="log-container">
+  <div class="empty-state" id="emptyState">
+    <div>waiting for logs...</div>
+    <p>make sure the producer is running</p>
+  </div>
+</div>
+
+<script>
+  const API = window.location.origin.replace(':8080', ':3000');
+
+  let paused = false;
+  let logs = [];
+  let services = new Set();
+  let stats = { total: 0, errors: 0, warnings: 0, info: 0 };
+
+  // stats polling every 3 seconds
+  async function fetchStats() {
+    try {
+      const res = await fetch(`${API}/api/stats`);
+      const data = await res.json();
+      document.getElementById('statTotal').textContent = data.total;
+      document.getElementById('statErrors').textContent = data.ERROR ?? data.errors ?? 0;
+      document.getElementById('statWarnings').textContent = data.WARNING ?? data.warnings ?? 0;
+      document.getElementById('statInfo').textContent = data.INFO ?? data.info ?? 0;
+    } catch(e) {}
+
+    // separately fetch queue depth — queue might be down, don't let it break the rest
+    try {
+      const qRes = await fetch(`${API}/queue/jobs/stats`);
+      const qData = await qRes.json();
+      document.getElementById('statQueue').textContent = qData.waiting + qData.active;
+    } catch(e) {
+      document.getElementById('statQueue').textContent = '—';
+    }
+  }
+
+  fetchStats();
+  setInterval(fetchStats, 3000);
+
+  // SSE for live logs
+  function connect() {
+    const evtSource = new EventSource(`${API}/api/stream`);
+    const dot = document.getElementById('statusDot');
+    const txt = document.getElementById('statusText');
+
+    evtSource.addEventListener('log', (e) => {
+      const log = JSON.parse(e.data);
+      if (!paused) appendLog(log);
+      if (log.service) services.add(log.service);
+      updateServiceFilter();
+    });
+
+    evtSource.onopen = () => {
+      dot.className = 'status-dot';
+      txt.textContent = 'live';
+    };
+
+    evtSource.onerror = () => {
+      dot.className = 'status-dot disconnected';
+      txt.textContent = 'disconnected — retrying...';
+    };
+  }
+
+  connect();
+
+  function appendLog(log) {
+    const container = document.getElementById('log-container');
+    const empty = document.getElementById('emptyState');
+    if (empty) empty.remove();
+
+    const levelFilter = document.getElementById('levelFilter').value;
+    const serviceFilter = document.getElementById('serviceFilter').value;
+
+    if (levelFilter && log.level !== levelFilter) return;
+    if (serviceFilter && log.service !== serviceFilter) return;
+
+    const row = document.createElement('div');
+    row.className = `log-row ${log.level}`;
+    row.innerHTML = `
+      <span class="col-time">${new Date(log.timestamp).toLocaleTimeString('en-GB', { hour12: false }) + '.' + new Date(log.timestamp).getMilliseconds().toString().padStart(3,'0')}</span>
+      <span class="col-level"><span class="level-badge ${log.level}">${log.level}</span></span>
+      <span class="col-service">${log.service || 'unknown'}</span>
+      <span class="col-msg">${log.message}</span>
+    `;
+
+    container.prepend(row);
+
+    // keep DOM from getting too big
+    const rows = container.querySelectorAll('.log-row');
+    if (rows.length > 500) rows[rows.length - 1].remove();
+  }
+
+  function updateServiceFilter() {
+    const sel = document.getElementById('serviceFilter');
+    const current = sel.value;
+    const existing = Array.from(sel.options).map(o => o.value);
+
+    services.forEach(s => {
+      if (!existing.includes(s)) {
+        const opt = document.createElement('option');
+        opt.value = s;
+        opt.textContent = s;
+        sel.appendChild(opt);
+      }
+    });
+
+    sel.value = current;
+  }
+
+  // filter changes reload from API
+  document.getElementById('levelFilter').addEventListener('change', reloadFromAPI);
+  document.getElementById('serviceFilter').addEventListener('change', reloadFromAPI);
+
+  async function reloadFromAPI() {
+    const level = document.getElementById('levelFilter').value;
+    const service = document.getElementById('serviceFilter').value;
+
+    const params = new URLSearchParams();
+    if (level) params.set('level', level);
+    if (service) params.set('service', service);
+    params.set('limit', '200');
+
+    try {
+      const res = await fetch(`${API}/api/logs?${params}`);
+      const data = await res.json();
+      const container = document.getElementById('log-container');
+      container.innerHTML = '';
+      data.logs.forEach(log => appendLog(log));
+    } catch(e) {}
+  }
+
+  document.getElementById('pauseBtn').addEventListener('click', function() {
+    paused = !paused;
+    this.textContent = paused ? '▶ resume' : '⏸ pause';
+  });
+
+  document.getElementById('clearBtn').addEventListener('click', async () => {
+    await fetch(`${API}/api/logs`, { method: 'DELETE' });
+    document.getElementById('log-container').innerHTML = `
+      <div class="empty-state" id="emptyState">
+        <div>logs cleared</div>
+        <p>waiting for new logs...</p>
+      </div>
+    `;
+  });
+</script>
+</body>
+</html>
